@@ -103,6 +103,16 @@ enum TipoAnalise {
   OUTRO
 }
 
+// Tipos de lista configurável no Admin (bloco Escopo e cadastro)
+enum CatalogTipo {
+  CATEGORIA
+  UF
+  RELATORIO
+  TIPO_MIDIA
+  PRACA
+  FONTE_INFO
+}
+
 // Status de qualificação do lead
 enum LeadStatus {
   NOVO
@@ -204,6 +214,7 @@ model Lead {
   gclid           String?
   fbclid          String?
   status          LeadStatus @default(NOVO)
+  statusManual    Boolean    @default(false) // true = definido à mão; reclassificação automática não sobrescreve
   accountId       String? // vínculo opcional com a conta (empresa) do FC
 
   // Eventos Meta CAPI (modo "posterior") — mantidos no código, desligados por Setting capi_enabled=false
@@ -352,9 +363,10 @@ model Stage {
   id       String  @id @default(cuid())
   nome     String
   ordem    Int
-  terminal Boolean @default(false)
-  preset   String // "v1" | "v2"
-  ativo    Boolean @default(true)
+  terminal  Boolean    @default(false)
+  resultado Resultado? // só em etapas terminais: FECHADO (Fechamento) ou PERDIDO (Perda/Abandonados — exige motivo)
+  preset    String // "v1" | "v2"
+  ativo     Boolean    @default(true)
 
   oportunidades     Opportunity[]
   transicoesSaida   StageTransition[]     @relation("TransitionFrom")
@@ -641,4 +653,19 @@ model AIAnalysis {
   proposal    Proposal?    @relation(fields: [proposalId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+}
+
+// Listas configuráveis no Admin (categorias, UFs, relatórios, mídia, praças, fontes).
+// Itens desativados somem dos seletores, mas os registros históricos guardam o nome.
+model CatalogItem {
+  id        String      @id @default(cuid())
+  tipo      CatalogTipo
+  nome      String
+  codigo    String? // ex.: sigla da UF
+  ordem     Int         @default(0)
+  ativo     Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  @@unique([tipo, nome])
+  @@index([tipo, ativo, ordem])
 }

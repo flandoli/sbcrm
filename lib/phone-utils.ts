@@ -13,7 +13,11 @@ export interface PhoneParseResult {
   status: 'NOVO' | 'DDD_INDESEJADO' | 'DDI_INDESEJADO'
 }
 
-export function parsePhone(raw: string, allowedDdds?: Set<string>): PhoneParseResult {
+/**
+ * Modo "pré" de qualificação. Brasil (55) valida o DDD contra allowedDdds.
+ * Números internacionais só passam se o DDI estiver em allowedDdis (casamento pelo prefixo mais longo).
+ */
+export function parsePhone(raw: string, allowedDdds?: Set<string>, allowedDdis?: Set<string>): PhoneParseResult {
   const digits = (raw ?? '').replace(/\D/g, '')
   const ddds = allowedDdds ?? ALLOWED_DDDS
 
@@ -33,7 +37,11 @@ export function parsePhone(raw: string, allowedDdds?: Set<string>): PhoneParseRe
     ddi = '55'
     rest = digits
   } else {
-    // International number
+    // Número internacional
+    const match = Array.from(allowedDdis ?? [])
+      .filter((d) => d !== '55' && digits.startsWith(d))
+      .sort((a, b) => b.length - a.length)[0]
+    if (match) return { raw, normalized: digits, ddi: match, ddd: null, status: 'NOVO' }
     return { raw, normalized: digits, ddi: digits.slice(0, 2), ddd: null, status: 'DDI_INDESEJADO' }
   }
 

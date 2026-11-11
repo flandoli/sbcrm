@@ -32,6 +32,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       where: { id: lead.id },
       data: {
         status: status as LeadStatus,
+        statusManual: true, // decisão manual: a reclassificação automática não sobrescreve
         ...(metaResult
           ? {
               metaEventSent: metaResult.success,

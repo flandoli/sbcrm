@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { parsePhone } from '@/lib/phone-utils'
 import { classifyChannel } from '@/lib/channel-utils'
 import { sendLeadIdentifiedEvent, sendQualifiedLeadEvent } from '@/lib/meta-capi'
-import { getAllowedDdds, isAutoQualifyEnabled } from '@/lib/settings'
+import { getAllowedDdds, getAllowedDdis, isAutoQualifyEnabled } from '@/lib/settings'
 import { audit } from '@/lib/audit'
 
 /**
@@ -114,9 +114,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'ok', message: 'no phone' }, { status: 200 })
     }
 
-    const allowedDdds = await getAllowedDdds()
+    const [allowedDdds, allowedDdis] = await Promise.all([getAllowedDdds(), getAllowedDdis()])
 
-    const parsed = parsePhone(String(phone), allowedDdds)
+    const parsed = parsePhone(String(phone), allowedDdds, allowedDdis)
     const upsertKey = parsed.normalized ?? parsed.raw
 
     // Auto-qualificação
