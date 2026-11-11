@@ -1,28 +1,148 @@
+// Funil Comercial (FC / sbcrm) — schema Prisma v1 (Marco 0)
+// Base: núcleo herdado (auth, Lead, Setting, AuditLog) + entidades novas do FC.
+
 generator client {
-    provider = "prisma-client-js"
-    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
-    output = "/home/ubuntu/meta_leads_dashboard/nextjs_space/node_modules/.prisma/client"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+// ─────────────────────────────── ENUMS ───────────────────────────────
+
+enum Papel {
+  ADMIN
+  DIRETOR
+  GERENTE
+  VENDEDOR
+}
+
+enum Segmento {
+  VAREJO
+  INDUSTRIA
+}
+
+enum TipoOrigem {
+  MIDIA
+  PARCEIRO
+  INDICACAO
+  PROSPECCAO
+  EVENTO
+  OUTRO
+}
+
+enum PapelPessoa {
+  DECISOR
+  INFLUENCIADOR
+  USUARIO
+  CLIENTE_INTERNO
+  PAGADOR
+  OPOSITOR
+}
+
+enum TipoOpor {
+  NOVA_VENDA
+  UPGRADE
+  RENOVACAO
+}
+
+enum Resultado {
+  FECHADO
+  PERDIDO
+}
+
+enum ProposalStatus {
+  RASCUNHO
+  ATIVA
+  PRINCIPAL
+  FECHADA
+  PERDIDA
+  REATIVADA
+}
+
+enum Periodicidade {
+  MENSAL
+  TRIMESTRAL
+  ANUAL
+}
+
+enum StatusTestDrive {
+  AGENDADO
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
+}
+
+enum TipoAjuste {
+  REAJUSTE
+  REVISAO_ESCOPO
+  VENCIMENTO
+  OUTRO
+}
+
+enum TipoMapItem {
+  PROXIMO_PASSO
+  DEPENDENCIA
+  UPGRADE
+  ALERTA
+}
+
+enum StatusCasamento {
+  CASADO
+  REVISAO
+  NAO_CASADO
+}
+
+enum TipoAnalise {
+  PROXIMOS_PASSOS
+  REVISAO_PROPOSTA
+  NARRATIVA_RESULTADO
+  OUTRO
+}
+
+// Status de qualificação do lead
+enum LeadStatus {
+  NOVO
+  QUALIFICADO
+  SEM_INTERESSE
+  DDD_INDESEJADO
+  DDI_INDESEJADO
+  INVALIDO
+}
+
+// ──────────────────────── AUTENTICAÇÃO (mantido do LQ) ────────────────────────
+// O model de conta OAuth do NextAuth foi renomeado para AuthAccount para liberar o nome
+// "Account" para a entidade de negócio (empresa/CNPJ). Login é por credenciais (e-mail/senha).
 
 model User {
   id            String    @id @default(cuid())
   name          String?
   email         String    @unique
   emailVerified DateTime?
-  password      String?
   image         String?
+  password      String // hash bcrypt
+  papel         Papel     @default(VENDEDOR)
+  segmento      Segmento? // segmento do Gerente (visibilidade do pipeline)
+  ativo         Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  accounts      Account[]
-  sessions      Session[]
+
+  authAccounts        AuthAccount[]
+  sessions            Session[]
+  contas              Account[]             @relation("AccountResponsavel")
+  oportunidades       Opportunity[]         @relation("OpportunityResponsavel")
+  stageHistory        StageHistory[]
+  conversionRatesMeta StageConversionRate[] @relation("ConversionRateUser")
+  conversionRatesSet  StageConversionRate[] @relation("ConversionRateSetter")
+  aiIntegration       AIIntegration?
+  aiAnalyses          AIAnalysis[]
+  auditLogs           AuditLog[]
 }
 
-model Account {
+model AuthAccount {
   id                String  @id @default(cuid())
   userId            String
   type              String
@@ -35,9 +155,11 @@ model Account {
   scope             String?
   id_token          String? @db.Text
   session_state     String?
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@map("auth_accounts")
 }
 
 model Session {
@@ -56,154 +178,467 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-enum LeadStatus {
-  NOVO
-  QUALIFICADO
-  SEM_INTERESSE
-  DDD_INDESEJADO
-  DDI_INDESEJADO
-  INVALIDO
-  ALUNO
-}
+// ──────────────────────── NÚCLEO MANTIDO DO LQ ────────────────────────
 
+// Lead: ingestão + dedupe por telefone normalizado + classificação de canal + CAPI (desligado na v1)
 model Lead {
-  id                     String     @id @default(cuid())
-  phoneRaw               String
-  phoneNormalized        String?
-  ddi                    String?
-  ddd                    String?
-  name                   String?
-  campaignId             String?
-  campaignName           String?
-  messageFirst           String?
-  status                 LeadStatus @default(NOVO)
-  opasuiteConversationId String?
-  isNewConversation      Boolean    @default(true)
-  opasuiteEvent          String?
-  adId                   String?
-  adTitle                String?
-  adUrl                  String?
-  adMediaUrl             String?
-  utmSource              String?
-  utmMedium              String?
-  utmCampaign            String?    // utm_campaign (nome ou ID da campanha)
-  utmContent             String?    // utm_content (ID do criativo/anúncio)
-  utmTerm                String?    // utm_term (palavra-chave)
-  gclid                  String?    // Google Click ID
-  fbclid                 String?    // Facebook Click ID
-  channel                String?    // "pago_meta", "pago_google", "pago_outro", "organico", "direto"
-  source                 String     @default("opasuite")
-  vaicrmContactId        String?    // ID do contato na Vai de Vendas (VaiCRM), para rastreio/dedupe
-  vaicrmChatStatus       String?    // Status do atendimento (chat) na Vai de Vendas: 'pending' | 'open' | 'closed'
-  vaicrmAssigned         Boolean    @default(false) // Chat da Vai de Vendas foi assumido por um atendente (assignedUserId preenchido)
-  vaicrmStage            String?    // Etapa no funil Kanban CRM da Vai de Vendas (rótulo curto: Apresentação | Analisando | Negociação | Matrícula | Perda)
-  vaicrmOutcome          String?    // Desfecho do card no Kanban: 'won' (ganho/matrícula) | 'lost' (perda) | null
-  vaicrmSalesValue       Float?     // Valor de venda (salesData.value) do card no Kanban CRM
-  vaicrmTags             String?    // Tags do contato na Vai de Vendas (JSON array de nomes, ex.: ["Matrícula","Lead Quente"])
-  isAluno                Boolean    @default(false)
-  isNotAluno             Boolean    @default(false) // Confirmou que NÃO é aluno (etiqueta "Não é Aluno" na OpaSuite)
-  metaTagged             Boolean    @default(false) // OpaSuite aplicou a etiqueta "Meta" (origem paga reportada pela Opa)
-  metaTagCheckedAt       DateTime?  // Quando a presença/ausência da etiqueta Meta foi verificada pela última vez
-  isDropped              Boolean    @default(false) // Derrubado: iniciou conversa mas ficou inativo (~3h) / encerrado por inatividade
-  ssrj                   Boolean    @default(false) // Lead veio de campanha de outra conta (etiqueta SSRJ_* na OpaSuite)
-  viraTecnico            Boolean    @default(false) // Lead da página "viratecnico" e/ou da linha WhatsApp 11 94577-7262
-  opaChannelId           String?    // channelId (canal_id) da OpaSuite — usado para identificar a linha de WhatsApp de origem
-  openedAt               DateTime?  // Data/hora de abertura do atendimento (campo "date" da API OpaSuite)
-  assumedAt              DateTime?  // Data/hora que o atendente assumiu (transição AG→EA)
-  closedAt               DateTime?  // Data/hora de encerramento (campo "fim" da API OpaSuite)
-  opaStatus              String?    // Status na OpaSuite: AG (aguardando atendente), EA (em atendimento), F (finalizado)
-  waitingOn              String?    // Quem precisa agir: "atendente" ou "cliente" (pela última mensagem visível)
-  lastMessageAt          DateTime?  // Data/hora da última mensagem visível da conversa
-  opaStatusCheckedAt     DateTime?  // Última consulta de status/mensagens na API OpaSuite
-  opaAssumed             Boolean    @default(false) // Confirmado na OpaSuite que foi assumido por atendente (status != AG e id_atendente presente), mesmo sem assumedAt pelo webhook
-  opaAttendantId         String?    // id_atendente do atendimento na OpaSuite
-  botStuck               Boolean    @default(false) // Lead parado no fluxo automático: conversa aberta, aguardando cliente, e o cliente quase não respondeu (0-1 msgs) há mais de 1h
-  botStuckStage          String?    // Etapa inferida pelo engajamento: "optin" (0 msgs do cliente) ou "welcome" (1 msg do cliente). Inferido, pois o texto dos portões do bot não fica disponível na API de mensagens
-  botStuckClientMsgs     Int?       // Quantas mensagens o cliente enviou (base da inferência de etapa)
-  metaEventSent          Boolean    @default(false) // QualifiedLead enviado à Meta (lead passou na triagem/critérios)
-  metaEventId            String?
-  metaEventError         String?
-  metaEventSentAt        DateTime?
-  metaLeadEventSent      Boolean    @default(false) // Lead (identificação/medição) enviado à Meta na chegada
-  metaLeadEventId        String?
-  metaLeadEventError     String?
-  metaLeadEventSentAt    DateTime?
-  createdAt              DateTime   @default(now())
-  updatedAt              DateTime   @updatedAt
-  sales                  Sale[]
+  id              String     @id @default(cuid())
+  phoneRaw        String?
+  phoneNormalized String     @unique // 55 + DDD + número
+  ddi             String?
+  ddd             String?
+  name            String?
+  email           String?
+  source          String? // origem técnica da ingestão (ex.: manual, leadster, planilha)
+  channel         String? // pago_meta | pago_google | pago_outro | organico | direto
+  adId            String?
+  adTitle         String?
+  adUrl           String?
+  campaignId      String?
+  campaignName    String?
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmContent      String?
+  utmTerm         String?
+  gclid           String?
+  fbclid          String?
+  status          LeadStatus @default(NOVO)
+  accountId       String? // vínculo opcional com a conta (empresa) do FC
 
-  @@unique([phoneNormalized])
+  // Eventos Meta CAPI (modo "posterior") — mantidos no código, desligados por Setting capi_enabled=false
+  metaLeadEventSent   Boolean   @default(false)
+  metaLeadEventId     String?
+  metaLeadEventError  String?
+  metaLeadEventSentAt DateTime?
+  metaEventSent       Boolean   @default(false)
+  metaEventId         String?
+  metaEventError      String?
+  metaEventSentAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  vendas  Sale[]
+
   @@index([status])
   @@index([createdAt])
   @@index([ddd])
-  @@index([isNewConversation])
-  @@index([isDropped])
-  @@index([metaTagged])
-  @@index([ssrj])
-  @@index([viraTecnico])
   @@index([channel])
   @@index([utmCampaign])
   @@index([source])
-  @@index([vaicrmContactId])
-  @@index([vaicrmOutcome])
-  @@index([vaicrmStage])
 }
 
-model Sale {
-  id             String    @id @default(cuid())
-  matricula      String    @unique // Nº da matrícula (chave de deduplicação em re-uploads)
-  idEscola       String?
-  dataMatricula  DateTime? // Data/hora da matrícula
-  nome           String?
-  email          String?
-  phoneRaw       String    // CELULAR como veio na planilha
-  phoneNormalized String?  // Telefone normalizado (55 + DDD + número) p/ cruzar com Lead
-  ddi            String?
-  ddd            String?
-  uf             String?
-  curso          String?
-  valorPago      Float?
-  formaPgto      String?
-  midia          String?
-  formaContato   String?
-  leadId         String?   // Lead correspondente (casado por telefone), se houver
-  lead           Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  matched        Boolean   @default(false)
-  offlineConvSent Boolean   @default(false) // Conversão offline enviada ao Google
-  offlineConvSentAt DateTime? // Quando foi enviada
-  offlineConvError String?   // Erro no envio (se houver)
-  metaPurchaseSent Boolean  @default(false) // Purchase enviado à Meta (matrícula casada a lead de origem Meta)
-  metaPurchaseSentAt DateTime? // Quando o Purchase foi enviado à Meta
-  metaPurchaseEventId String? // event_id determinístico do Purchase (dedup)
-  metaPurchaseError String?   // Erro no envio do Purchase à Meta (se houver)
-  midiaAjustada  String?   // Classificação refinada de mídia (planilha diária do usuário)
-  grupoMacro     String?   // Grupo macro de atribuição (GOOGLE, META, IA, CELERA, etc.)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@index([phoneNormalized])
-  @@index([dataMatricula])
-  @@index([leadId])
-  @@index([matched])
-  @@index([grupoMacro])
-}
-
+// Configuração chave→valor (ex.: allowed_ddds, capi_enabled)
 model Setting {
   key       String   @id
   value     String   @db.Text
   updatedAt DateTime @updatedAt
 }
 
-model WebhookLog {
-  id          String   @id @default(cuid())
-  source      String   @default("opasuite")
-  payload     String   @db.Text
-  headers     String?  @db.Text
-  phoneFound  String?
-  leadSaved   Boolean  @default(false)
-  note        String?
-  apiResponse String?  @db.Text
-  createdAt   DateTime @default(now())
+// Log de auditoria generalizado: qualquer alteração (config, ingestão, etc.)
+model AuditLog {
+  id            String   @id @default(cuid())
+  userId        String?
+  acao          String // ex.: "setting.update", "stage.move", "proposal.discount"
+  entidade      String // ex.: "Setting", "Opportunity"
+  entidadeId    String?
+  valorAnterior Json?
+  valorNovo     Json?
+  createdAt     DateTime @default(now())
 
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entidade, entidadeId])
+  @@index([userId])
   @@index([createdAt])
+}
+
+// ──────────────────────── ENTIDADES NOVAS DO FC ────────────────────────
+
+model Account {
+  id                  String   @id @default(cuid())
+  razaoSocial         String
+  nomeFantasia        String?
+  cnpjRaiz            String // 8 dígitos
+  cnpjEstabelecimento String // 4 dígitos
+  cnpjDv              String // 2 dígitos
+  inscricaoEstadual   String?
+  segmento            Segmento
+  redeOuGrupo         String?
+  matrizId            String?
+  endFaturamento      Json?
+  emailNf             String?
+  origemId            String?
+  parceiroId          String?
+  responsavelId       String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  matriz        Account?      @relation("MatrizFiliais", fields: [matrizId], references: [id], onDelete: SetNull)
+  filiais       Account[]     @relation("MatrizFiliais")
+  origem        LeadOrigin?   @relation(fields: [origemId], references: [id], onDelete: SetNull)
+  parceiro      Partner?      @relation(fields: [parceiroId], references: [id], onDelete: SetNull)
+  responsavel   User          @relation("AccountResponsavel", fields: [responsavelId], references: [id])
+  pessoas       PersonRole[]
+  oportunidades Opportunity[]
+  vendas        Sale[]
+  leads         Lead[]
+
+  @@unique([cnpjRaiz, cnpjEstabelecimento]) // dedupe por CNPJ completo
+  @@index([cnpjRaiz])
+  @@index([matrizId])
+  @@index([responsavelId])
+  @@index([razaoSocial])
+}
+
+model Partner {
+  id        String   @id @default(cuid())
+  nome      String
+  contato   String?
+  feePorc   Decimal  @db.Decimal(5, 2)
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  origens LeadOrigin[]
+  contas  Account[]
+}
+
+model LeadOrigin {
+  id         String     @id @default(cuid())
+  nome       String
+  tipo       TipoOrigem
+  parceiroId String?
+  ativo      Boolean    @default(true)
+
+  parceiro Partner?  @relation(fields: [parceiroId], references: [id], onDelete: SetNull)
+  contas   Account[]
+}
+
+model Person {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String?
+  telefone  String // normalizado (apenas dígitos)
+  cargo     String?
+  area      String?
+  createdAt DateTime @default(now())
+
+  papeis PersonRole[]
+
+  @@index([telefone])
+  @@index([email])
+}
+
+model PersonRole {
+  id            String      @id @default(cuid())
+  personId      String
+  accountId     String
+  papel         PapelPessoa
+  area          String?
+  hierarquia    Int?
+  principal     Boolean     @default(false)
+  recebeNf      Boolean     @default(false)
+  usuarioPortal Boolean     @default(false)
+
+  person  Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, area])
+}
+
+model Stage {
+  id       String  @id @default(cuid())
+  nome     String
+  ordem    Int
+  terminal Boolean @default(false)
+  preset   String // "v1" | "v2"
+  ativo    Boolean @default(true)
+
+  oportunidades     Opportunity[]
+  transicoesSaida   StageTransition[]     @relation("TransitionFrom")
+  transicoesEntrada StageTransition[]     @relation("TransitionTo")
+  historicoSaida    StageHistory[]        @relation("HistoryFrom")
+  historicoEntrada  StageHistory[]        @relation("HistoryTo")
+  taxasConversao    StageConversionRate[]
+
+  @@unique([preset, ordem])
+}
+
+model StageTransition {
+  id          String  @id @default(cuid())
+  fromStageId String? // null = entrada inicial
+  toStageId   String
+  papeis      Papel[]
+
+  fromStage Stage? @relation("TransitionFrom", fields: [fromStageId], references: [id], onDelete: Cascade)
+  toStage   Stage  @relation("TransitionTo", fields: [toStageId], references: [id], onDelete: Cascade)
+
+  @@unique([fromStageId, toStageId])
+}
+
+model StageHistory {
+  id            String   @id @default(cuid())
+  opportunityId String
+  fromStageId   String?
+  toStageId     String
+  userId        String
+  createdAt     DateTime @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fromStage   Stage?      @relation("HistoryFrom", fields: [fromStageId], references: [id])
+  toStage     Stage       @relation("HistoryTo", fields: [toStageId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@index([opportunityId, createdAt])
+}
+
+model StageConversionRate {
+  id        String    @id @default(cuid())
+  stageId   String
+  segmento  Segmento? // null = todos
+  userId    String? // null = meta global
+  taxa      Decimal   @db.Decimal(5, 4) // 0.0000 a 1.0000
+  setadoPor String
+  setadoEm  DateTime  @default(now())
+
+  stage  Stage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  user   User? @relation("ConversionRateUser", fields: [userId], references: [id], onDelete: Cascade)
+  setter User  @relation("ConversionRateSetter", fields: [setadoPor], references: [id])
+
+  @@index([stageId, segmento, userId])
+}
+
+model Opportunity {
+  id                 String     @id @default(cuid())
+  accountId          String
+  stageId            String
+  responsavelId      String
+  tipo               TipoOpor   @default(NOVA_VENDA)
+  oportunidadeRefId  String? // upgrade/renovação → oportunidade original
+  valorTabela        Decimal?   @db.Decimal(14, 2)
+  valorProposto      Decimal?   @db.Decimal(14, 2)
+  desconto           Decimal?   @db.Decimal(5, 2)
+  previsaoFechamento DateTime?
+  tempEstConversao   Int? // dias (manual na v1)
+  resultado          Resultado?
+  motivoPerda        String? // obrigatório quando resultado = PERDIDO (validado na aplicação)
+  alertaRetomada     DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  account         Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  stage           Stage            @relation(fields: [stageId], references: [id])
+  responsavel     User             @relation("OpportunityResponsavel", fields: [responsavelId], references: [id])
+  oportunidadeRef Opportunity?     @relation("OpportunityRef", fields: [oportunidadeRefId], references: [id], onDelete: SetNull)
+  derivadas       Opportunity[]    @relation("OpportunityRef")
+  historico       StageHistory[]
+  reunioes        Meeting[]
+  propostas       Proposal[]
+  mapa            OpportunityMap[]
+  testDrives      TestDrive[]
+  escopos         Scope[]
+  faturamento     BillingData[]
+  analisesIA      AIAnalysis[]
+
+  @@index([accountId])
+  @@index([stageId])
+  @@index([responsavelId])
+  @@index([alertaRetomada])
+}
+
+model Meeting {
+  id             String   @id @default(cuid())
+  opportunityId  String
+  dataHora       DateTime
+  participantes  String[]
+  pauta          String?
+  ata            String?
+  proximosPassos String?
+  createdAt      DateTime @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, dataHora])
+}
+
+model Proposal {
+  id                  String         @id @default(cuid())
+  opportunityId       String
+  status              ProposalStatus @default(RASCUNHO)
+  pacote              String? // rótulo opcional (P/M/G/GG) — sem motor de preços na v1
+  servico             String
+  valorTabela         Decimal        @db.Decimal(14, 2)
+  valorProposto       Decimal        @db.Decimal(14, 2)
+  desconto            Decimal        @db.Decimal(5, 2) // calculado
+  condicaoPromocional Decimal?       @db.Decimal(14, 2)
+  duracaoPromocional  Int? // meses
+  valorCheio          Decimal?       @db.Decimal(14, 2)
+  implantacao         Decimal?       @db.Decimal(14, 2)
+  implantacaoIsenta   Boolean        @default(false)
+  periodicidade       Periodicidade
+  validadeProposta    DateTime
+  validadeContrato    Int // meses
+  autoRenovacao       Boolean        @default(true)
+  prazoPagamento      Int // dias
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  opportunity Opportunity          @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  ajustes     ProposalAdjustment[]
+  mapa        OpportunityMap[]
+  analisesIA  AIAnalysis[]
+
+  @@index([opportunityId, status])
+}
+
+model ProposalAdjustment {
+  id            String     @id @default(cuid())
+  proposalId    String
+  dataAlerta    DateTime
+  descricao     String
+  tipoAjuste    TipoAjuste
+  valorEstimado Decimal?   @db.Decimal(14, 2)
+  concluido     Boolean    @default(false)
+  createdAt     DateTime   @default(now())
+
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([dataAlerta])
+}
+
+model OpportunityMap {
+  id            String      @id @default(cuid())
+  opportunityId String
+  proposalId    String?
+  titulo        String
+  tipo          TipoMapItem
+  descricao     String?
+  responsavel   String? // nome livre na v1
+  prazo         DateTime?
+  dependeDeId   String?
+  concluido     Boolean     @default(false)
+  ordem         Int
+  createdAt     DateTime    @default(now())
+
+  opportunity Opportunity      @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  proposal    Proposal?        @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  dependeDe   OpportunityMap?  @relation("MapDependencia", fields: [dependeDeId], references: [id], onDelete: SetNull)
+  dependentes OpportunityMap[] @relation("MapDependencia")
+
+  @@index([opportunityId, ordem])
+  @@index([prazo])
+}
+
+model TestDrive {
+  id               String          @id @default(cuid())
+  opportunityId    String
+  dataInicio       DateTime
+  dataFim          DateTime
+  dataApresentacao DateTime?
+  escopo           String?
+  status           StatusTestDrive @default(AGENDADO)
+  avaliacao        String?
+  createdAt        DateTime        @default(now())
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+}
+
+model Scope {
+  id               String   @id @default(cuid())
+  opportunityId    String
+  categorias       String[]
+  regioes          String[]
+  tipoMidia        String[]
+  pracas           String[]
+  relatorios       String[]
+  periodoHistorico Int?
+  fontesInfo       String[]
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+}
+
+model BillingData {
+  id                  String    @id @default(cuid())
+  opportunityId       String
+  cnpjFaturamento     String
+  endFaturamento      Json
+  emailNf             String
+  inicioFaturamento   DateTime
+  liberacaoAcesso     DateTime
+  inicioPrazoContagem DateTime
+  responsavelContrato String
+  aceiteContrato      Boolean   @default(false)
+  aceiteEm            DateTime?
+  feeParceiroPorc     Decimal?  @db.Decimal(5, 2) // cópia de Partner.feePorc no fechamento
+  feeParceiroValor    Decimal?  @db.Decimal(14, 2)
+  feeLiquidado        Boolean   @default(false)
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+}
+
+// Venda importada por planilha. Casamento: CNPJ → razão social → telefone (lógica mantida do LQ)
+model Sale {
+  id              String          @id @default(cuid())
+  accountId       String?
+  leadId          String?
+  cnpj            String?
+  razaoSocial     String?
+  phoneNormalized String?
+  valor           Decimal         @db.Decimal(14, 2)
+  datavenda       DateTime // receita atribuída pela data da venda
+  origem          String?
+  status          StatusCasamento @default(NAO_CASADO)
+  importHash      String?         @unique // idempotência da importação
+  createdAt       DateTime        @default(now())
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  lead    Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([cnpj])
+  @@index([phoneNormalized])
+  @@index([datavenda])
+  @@index([status])
+}
+
+model DiscountPolicy {
+  id       String    @id @default(cuid())
+  papel    Papel
+  segmento Segmento?
+  tetoPorc Decimal   @db.Decimal(5, 2)
+
+  @@unique([papel, segmento])
+}
+
+model AIIntegration {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  provider    String    @default("openai")
+  apiKey      String // criptografada (AES-256-GCM, ver lib/crypto.ts) — nunca em plaintext
+  assistantId String? // asst_xxxx
+  ativo       Boolean   @default(true)
+  testedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AIAnalysis {
+  id            String      @id @default(cuid())
+  userId        String
+  opportunityId String?
+  proposalId    String?
+  tipo          TipoAnalise
+  prompt        String
+  resposta      String
+  tokens        Int?
+  createdAt     DateTime    @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  proposal    Proposal?    @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
 }
