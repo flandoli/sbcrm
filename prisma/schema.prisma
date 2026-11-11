@@ -1,0 +1,209 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/meta_leads_dashboard/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum LeadStatus {
+  NOVO
+  QUALIFICADO
+  SEM_INTERESSE
+  DDD_INDESEJADO
+  DDI_INDESEJADO
+  INVALIDO
+  ALUNO
+}
+
+model Lead {
+  id                     String     @id @default(cuid())
+  phoneRaw               String
+  phoneNormalized        String?
+  ddi                    String?
+  ddd                    String?
+  name                   String?
+  campaignId             String?
+  campaignName           String?
+  messageFirst           String?
+  status                 LeadStatus @default(NOVO)
+  opasuiteConversationId String?
+  isNewConversation      Boolean    @default(true)
+  opasuiteEvent          String?
+  adId                   String?
+  adTitle                String?
+  adUrl                  String?
+  adMediaUrl             String?
+  utmSource              String?
+  utmMedium              String?
+  utmCampaign            String?    // utm_campaign (nome ou ID da campanha)
+  utmContent             String?    // utm_content (ID do criativo/anúncio)
+  utmTerm                String?    // utm_term (palavra-chave)
+  gclid                  String?    // Google Click ID
+  fbclid                 String?    // Facebook Click ID
+  channel                String?    // "pago_meta", "pago_google", "pago_outro", "organico", "direto"
+  source                 String     @default("opasuite")
+  vaicrmContactId        String?    // ID do contato na Vai de Vendas (VaiCRM), para rastreio/dedupe
+  vaicrmChatStatus       String?    // Status do atendimento (chat) na Vai de Vendas: 'pending' | 'open' | 'closed'
+  vaicrmAssigned         Boolean    @default(false) // Chat da Vai de Vendas foi assumido por um atendente (assignedUserId preenchido)
+  vaicrmStage            String?    // Etapa no funil Kanban CRM da Vai de Vendas (rótulo curto: Apresentação | Analisando | Negociação | Matrícula | Perda)
+  vaicrmOutcome          String?    // Desfecho do card no Kanban: 'won' (ganho/matrícula) | 'lost' (perda) | null
+  vaicrmSalesValue       Float?     // Valor de venda (salesData.value) do card no Kanban CRM
+  vaicrmTags             String?    // Tags do contato na Vai de Vendas (JSON array de nomes, ex.: ["Matrícula","Lead Quente"])
+  isAluno                Boolean    @default(false)
+  isNotAluno             Boolean    @default(false) // Confirmou que NÃO é aluno (etiqueta "Não é Aluno" na OpaSuite)
+  metaTagged             Boolean    @default(false) // OpaSuite aplicou a etiqueta "Meta" (origem paga reportada pela Opa)
+  metaTagCheckedAt       DateTime?  // Quando a presença/ausência da etiqueta Meta foi verificada pela última vez
+  isDropped              Boolean    @default(false) // Derrubado: iniciou conversa mas ficou inativo (~3h) / encerrado por inatividade
+  ssrj                   Boolean    @default(false) // Lead veio de campanha de outra conta (etiqueta SSRJ_* na OpaSuite)
+  viraTecnico            Boolean    @default(false) // Lead da página "viratecnico" e/ou da linha WhatsApp 11 94577-7262
+  opaChannelId           String?    // channelId (canal_id) da OpaSuite — usado para identificar a linha de WhatsApp de origem
+  openedAt               DateTime?  // Data/hora de abertura do atendimento (campo "date" da API OpaSuite)
+  assumedAt              DateTime?  // Data/hora que o atendente assumiu (transição AG→EA)
+  closedAt               DateTime?  // Data/hora de encerramento (campo "fim" da API OpaSuite)
+  opaStatus              String?    // Status na OpaSuite: AG (aguardando atendente), EA (em atendimento), F (finalizado)
+  waitingOn              String?    // Quem precisa agir: "atendente" ou "cliente" (pela última mensagem visível)
+  lastMessageAt          DateTime?  // Data/hora da última mensagem visível da conversa
+  opaStatusCheckedAt     DateTime?  // Última consulta de status/mensagens na API OpaSuite
+  opaAssumed             Boolean    @default(false) // Confirmado na OpaSuite que foi assumido por atendente (status != AG e id_atendente presente), mesmo sem assumedAt pelo webhook
+  opaAttendantId         String?    // id_atendente do atendimento na OpaSuite
+  botStuck               Boolean    @default(false) // Lead parado no fluxo automático: conversa aberta, aguardando cliente, e o cliente quase não respondeu (0-1 msgs) há mais de 1h
+  botStuckStage          String?    // Etapa inferida pelo engajamento: "optin" (0 msgs do cliente) ou "welcome" (1 msg do cliente). Inferido, pois o texto dos portões do bot não fica disponível na API de mensagens
+  botStuckClientMsgs     Int?       // Quantas mensagens o cliente enviou (base da inferência de etapa)
+  metaEventSent          Boolean    @default(false) // QualifiedLead enviado à Meta (lead passou na triagem/critérios)
+  metaEventId            String?
+  metaEventError         String?
+  metaEventSentAt        DateTime?
+  metaLeadEventSent      Boolean    @default(false) // Lead (identificação/medição) enviado à Meta na chegada
+  metaLeadEventId        String?
+  metaLeadEventError     String?
+  metaLeadEventSentAt    DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+  sales                  Sale[]
+
+  @@unique([phoneNormalized])
+  @@index([status])
+  @@index([createdAt])
+  @@index([ddd])
+  @@index([isNewConversation])
+  @@index([isDropped])
+  @@index([metaTagged])
+  @@index([ssrj])
+  @@index([viraTecnico])
+  @@index([channel])
+  @@index([utmCampaign])
+  @@index([source])
+  @@index([vaicrmContactId])
+  @@index([vaicrmOutcome])
+  @@index([vaicrmStage])
+}
+
+model Sale {
+  id             String    @id @default(cuid())
+  matricula      String    @unique // Nº da matrícula (chave de deduplicação em re-uploads)
+  idEscola       String?
+  dataMatricula  DateTime? // Data/hora da matrícula
+  nome           String?
+  email          String?
+  phoneRaw       String    // CELULAR como veio na planilha
+  phoneNormalized String?  // Telefone normalizado (55 + DDD + número) p/ cruzar com Lead
+  ddi            String?
+  ddd            String?
+  uf             String?
+  curso          String?
+  valorPago      Float?
+  formaPgto      String?
+  midia          String?
+  formaContato   String?
+  leadId         String?   // Lead correspondente (casado por telefone), se houver
+  lead           Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  matched        Boolean   @default(false)
+  offlineConvSent Boolean   @default(false) // Conversão offline enviada ao Google
+  offlineConvSentAt DateTime? // Quando foi enviada
+  offlineConvError String?   // Erro no envio (se houver)
+  metaPurchaseSent Boolean  @default(false) // Purchase enviado à Meta (matrícula casada a lead de origem Meta)
+  metaPurchaseSentAt DateTime? // Quando o Purchase foi enviado à Meta
+  metaPurchaseEventId String? // event_id determinístico do Purchase (dedup)
+  metaPurchaseError String?   // Erro no envio do Purchase à Meta (se houver)
+  midiaAjustada  String?   // Classificação refinada de mídia (planilha diária do usuário)
+  grupoMacro     String?   // Grupo macro de atribuição (GOOGLE, META, IA, CELERA, etc.)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([phoneNormalized])
+  @@index([dataMatricula])
+  @@index([leadId])
+  @@index([matched])
+  @@index([grupoMacro])
+}
+
+model Setting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model WebhookLog {
+  id          String   @id @default(cuid())
+  source      String   @default("opasuite")
+  payload     String   @db.Text
+  headers     String?  @db.Text
+  phoneFound  String?
+  leadSaved   Boolean  @default(false)
+  note        String?
+  apiResponse String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
