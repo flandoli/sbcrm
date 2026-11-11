@@ -13,14 +13,11 @@ const jakartaSans = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-di
 const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' })
 
 export const metadata = {
-  title: 'Lead Qualifier — Qualificação de Leads WhatsApp',
-  description: 'Dashboard de qualificação de leads WhatsApp com integração Meta Conversions API',
+  title: 'Funil Comercial',
+  description: 'Funil Comercial — gestão de leads, oportunidades e vendas',
   icons: {
-    icon: '/logo-lq.png',
-    shortcut: '/logo-lq.png',
-  },
-  openGraph: {
-    images: ['/og-image-v2.png'],
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
   },
 }
 

@@ -2,8 +2,8 @@
  * Classifica o canal de aquisição do lead com base nos UTMs.
  *
  * Retorna:
- *  - "pago_meta"    – Facebook / Instagram / Meta Ads
- *  - "pago_google"  – Google Ads
+ *  - "pago_meta"    – Mídia paga Meta (Facebook / Instagram)
+ *  - "pago_google"  – Mídia paga Google
  *  - "pago_outro"   – Outra mídia paga não-Meta/Google
  *  - "organico"     – Busca orgânica ou referência
  *  - "direto"       – Acesso direto (sem UTMs)
@@ -38,7 +38,7 @@ export function classifyChannel(
   // Se tem fbclid (clique de anúncio Meta) mesmo sem UTMs padronizados
   if (hasFbclid) return 'pago_meta'
 
-  // Se veio de anúncio WhatsApp do OpaSuite (sem UTMs)
+  // Se veio com dados de anúncio (ad-id/etiqueta de origem) e sem UTMs
   if (hasAdData && !src) return 'pago_meta'
 
   // Se tem source mas medium não é pago → orgânico / referência
@@ -55,8 +55,8 @@ export function classifyChannel(
 /** Label legível para exibição no dashboard */
 export function channelLabel(channel: string | null | undefined): string {
   switch (channel) {
-    case 'pago_meta': return 'Meta Ads'
-    case 'pago_google': return 'Google Ads'
+    case 'pago_meta': return 'Pago Meta'
+    case 'pago_google': return 'Pago Google'
     case 'pago_outro': return 'Mídia Paga'
     case 'organico': return 'Orgânico'
     case 'direto': return 'Direto'

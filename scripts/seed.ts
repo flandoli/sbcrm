@@ -1,46 +1,57 @@
+// Seed do Marco 0: cria (ou atualiza) um único usuário Admin.
+// Credenciais vêm SOMENTE de variáveis de ambiente — nada hardcoded.
+//   SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD (mín. 12 caracteres), SEED_ADMIN_NAME (opcional)
+// Também cria os Settings iniciais (allowed_ddds vazio = padrão, auto_qualify=true, capi_enabled=false)
+// apenas se ainda não existirem, e registra tudo em AuditLog. Não apaga nada.
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
-const DEFAULT_DDDS = [
-  '11','12','13','14','15','16','17','18','19',
-  '20','21','22','23','24','25','26','27','28','29',
-  '30','31','32','33','34','35','36','37','38','39',
-  '40','41','42','43','44','45','46','47','48','49',
-]
+const DEFAULT_SETTINGS: Record<string, string> = {
+  allowed_ddds: '[]',
+  auto_qualify: 'true',
+  capi_enabled: 'false',
+}
 
 async function main() {
-  // Seed test admin account
-  const hashedPassword = await bcrypt.hash('QT*NZhwWh5', 12)
-  await prisma.user.upsert({
-    where: { email: 'abacus-2c03844b@example.com' },
-    update: { password: hashedPassword, name: 'Admin' },
-    create: {
-      email: 'abacus-2c03844b@example.com',
-      password: hashedPassword,
-      name: 'Admin',
-    },
+  const email = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase()
+  const password = process.env.SEED_ADMIN_PASSWORD
+  const name = process.env.SEED_ADMIN_NAME?.trim() || 'Administrador'
+
+  if (!email || !password) {
+    throw new Error('Defina SEED_ADMIN_EMAIL e SEED_ADMIN_PASSWORD para rodar o seed.')
+  }
+  if (password.length < 12) {
+    throw new Error('SEED_ADMIN_PASSWORD deve ter pelo menos 12 caracteres.')
+  }
+
+  const hash = await bcrypt.hash(password, 12)
+  const admin = await prisma.user.upsert({
+    where: { email },
+    update: { password: hash, papel: 'ADMIN', ativo: true, name },
+    create: { email, password: hash, papel: 'ADMIN', name },
   })
 
-  // Seed default allowed DDDs
-  await prisma.setting.upsert({
-    where: { key: 'allowed_ddds' },
-    update: {},
-    create: {
-      key: 'allowed_ddds',
-      value: JSON.stringify(DEFAULT_DDDS),
-    },
+  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+    const existing = await prisma.setting.findUnique({ where: { key } })
+    if (existing) continue
+    await prisma.setting.create({ data: { key, value } })
+    await prisma.auditLog.create({
+      data: { userId: admin.id, acao: 'setting.create', entidade: 'Setting', entidadeId: key, valorNovo: { value } },
+    })
+  }
+
+  await prisma.auditLog.create({
+    data: { userId: admin.id, acao: 'seed.admin', entidade: 'User', entidadeId: admin.id, valorNovo: { email, papel: 'ADMIN' } },
   })
 
-  console.log('Seed completed')
+  console.log(`Admin pronto: ${email}`)
 }
 
 main()
   .catch((e) => {
-    console.error(e)
+    console.error(e instanceof Error ? e.message : e)
     process.exit(1)
   })
-  .finally(async () => {
-    await prisma.$disconnect()
-  })
+  .finally(() => prisma.$disconnect())

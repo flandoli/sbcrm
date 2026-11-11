@@ -1,4 +1,8 @@
 import crypto from 'crypto'
+import { isCapiEnabled } from '@/lib/settings'
+
+// Modo "posterior" de qualificação. Mantido no código, DESLIGADO na v1:
+// os wrappers do funil só enviam quando Setting capi_enabled = "true".
 
 // Versão atual da Graph API (Conversions API). Atualizada de v19.0 → v26.0.
 const GRAPH_VERSION = 'v26.0'
@@ -140,7 +144,8 @@ export async function sendLeadIdentifiedEvent(
   leadId: string,
   user: MetaUserData,
   eventTime?: number,
-): Promise<MetaEventResult> {
+): Promise<MetaEventResult | null> {
+  if (!(await isCapiEnabled())) return null
   return sendMetaEvent({ eventName: 'Lead', user, eventId: `lead-${leadId}`, eventTime })
 }
 
@@ -149,34 +154,9 @@ export async function sendQualifiedLeadEvent(
   leadId: string,
   user: MetaUserData,
   eventTime?: number,
-): Promise<MetaEventResult> {
+): Promise<MetaEventResult | null> {
+  if (!(await isCapiEnabled())) return null
   return sendMetaEvent({ eventName: 'QualifiedLead', user, eventId: `ql-${leadId}`, eventTime })
-}
-
-/** Evento 'Purchase' com value/currency — matrícula confirmada (otimizar vendas/valor). */
-export async function sendPurchaseEvent(
-  matricula: string,
-  user: MetaUserData,
-  value: number,
-  eventTime?: number,
-): Promise<MetaEventResult> {
-  return sendMetaEvent({
-    eventName: 'Purchase',
-    user,
-    value,
-    currency: 'BRL',
-    eventId: `purchase-${matricula}`,
-    eventTime,
-  })
-}
-
-/**
- * Compatibilidade retroativa: antigo helper que mandava um único evento 'Lead'
- * por telefone. Mantido para não quebrar chamadas antigas; agora reaproveitado
- * como o evento de topo 'Lead'. Prefira os wrappers acima.
- */
-export async function sendLeadEvent(phoneNormalized: string): Promise<MetaEventResult> {
-  return sendMetaEvent({ eventName: 'Lead', user: { phone: phoneNormalized } })
 }
 
 export async function testMetaConnection(testEventCode?: string): Promise<{ success: boolean; message: string }> {

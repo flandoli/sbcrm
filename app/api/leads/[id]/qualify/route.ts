@@ -1,57 +1,56 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth-options'
+import { LeadStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { getSessionUser } from '@/lib/session'
 import { sendQualifiedLeadEvent } from '@/lib/meta-capi'
+import { audit } from '@/lib/audit'
+
+const VALID_STATUSES = Object.values(LeadStatus) as string[]
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  const user = await getSessionUser()
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   try {
-    const body = await req.json()
-    const { status } = body ?? {}
-
-    const validStatuses = ['NOVO', 'QUALIFICADO', 'SEM_INTERESSE', 'DDD_INDESEJADO', 'DDI_INDESEJADO', 'INVALIDO']
-    if (!validStatuses.includes(status)) {
+    const { status } = (await req.json().catch(() => ({}))) ?? {}
+    if (!VALID_STATUSES.includes(status)) {
       return NextResponse.json({ error: 'Status inválido' }, { status: 400 })
     }
 
     const lead = await prisma.lead.findUnique({ where: { id: params.id } })
     if (!lead) return NextResponse.json({ error: 'Lead não encontrado' }, { status: 404 })
 
-    let metaResult: any = null
+    // Modo "posterior": evento QualifiedLead só sai se capi_enabled = "true" (null = desligado).
+    const metaResult =
+      status === 'QUALIFICADO'
+        ? await sendQualifiedLeadEvent(lead.id, { phone: lead.phoneNormalized, name: lead.name, externalId: lead.id })
+        : null
 
-    // Only send to Meta if qualifying as QUALIFICADO AND lead is NOT aluno
-    if (status === 'QUALIFICADO' && lead.phoneNormalized && !lead.isAluno) {
-      metaResult = await sendQualifiedLeadEvent(lead.id, { phone: lead.phoneNormalized, name: lead.name, externalId: lead.id })
+    const updated = await prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        status: status as LeadStatus,
+        ...(metaResult
+          ? {
+              metaEventSent: metaResult.success,
+              metaEventId: metaResult.eventId,
+              metaEventError: metaResult.error ?? null,
+              metaEventSentAt: metaResult.success ? new Date() : null,
+            }
+          : {}),
+      },
+    })
 
-      await prisma.lead.update({
-        where: { id: params.id },
-        data: {
-          status: 'QUALIFICADO',
-          metaEventSent: metaResult.success,
-          metaEventId: metaResult.eventId,
-          metaEventError: metaResult.error ?? null,
-          metaEventSentAt: metaResult.success ? new Date() : null,
-        },
-      })
-    } else if (status === 'QUALIFICADO' && lead.isAluno) {
-      // Aluno: atualiza status mas NÃO envia conversão à Meta
-      await prisma.lead.update({
-        where: { id: params.id },
-        data: { status: 'QUALIFICADO' },
-      })
-    } else {
-      await prisma.lead.update({
-        where: { id: params.id },
-        data: { status },
-      })
-    }
-
-    const updated = await prisma.lead.findUnique({ where: { id: params.id } })
+    await audit({
+      userId: user.id,
+      acao: 'lead.status',
+      entidade: 'Lead',
+      entidadeId: lead.id,
+      valorAnterior: { status: lead.status },
+      valorNovo: { status, capi: metaResult ? metaResult.success : 'desligado' },
+    })
 
     return NextResponse.json({ lead: updated, metaResult })
   } catch (err: any) {

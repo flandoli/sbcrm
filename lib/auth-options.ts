@@ -1,18 +1,12 @@
 import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
-import GoogleProvider from 'next-auth/providers/google'
-import { PrismaAdapter } from '@next-auth/prisma-adapter'
-import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
+import { prisma } from '@/lib/prisma'
 
+// Login por e-mail/senha com sessão JWT. Sem adapter: usuários são criados pelo Admin
+// (Marco 1) ou pelo seed — não há cadastro público.
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID ?? '',
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
-      allowDangerousEmailAccountLinking: true,
-    }),
     CredentialsProvider({
       name: 'credentials',
       credentials: {
@@ -20,44 +14,31 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Senha', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null
-        const user = await prisma.user.findUnique({ where: { email: credentials.email } })
-        if (!user?.password) return null
+        const email = credentials?.email?.trim().toLowerCase()
+        if (!email || !credentials?.password) return null
+        const user = await prisma.user.findUnique({ where: { email } })
+        if (!user?.password || !user.ativo) return null
         const valid = await bcrypt.compare(credentials.password, user.password)
         if (!valid) return null
-        return { id: user.id, name: user.name, email: user.email }
+        return { id: user.id, name: user.name, email: user.email, papel: user.papel }
       },
     }),
   ],
   session: { strategy: 'jwt' },
   pages: { signIn: '/login' },
-  cookies: {
-    state: {
-      name: `next-auth.state`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-    pkceCodeVerifier: {
-      name: `next-auth.pkce.code_verifier`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
-  },
   callbacks: {
     async jwt({ token, user }) {
-      if (user) { token.id = user.id }
+      if (user) {
+        token.id = user.id
+        token.papel = user.papel
+      }
       return token
     },
     async session({ session, token }) {
-      if (session?.user) { (session.user as any).id = token.id }
+      if (session?.user) {
+        session.user.id = token.id
+        session.user.papel = token.papel
+      }
       return session
     },
     async redirect({ url, baseUrl }) {
