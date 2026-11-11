@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.build/
+out/
+.env
+.env.local
+.env*.local
+*.tsbuildinfo
+__abacus_error_reporter.js
+.DS_Store
+.yarn/
