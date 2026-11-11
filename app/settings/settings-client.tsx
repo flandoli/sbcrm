@@ -55,7 +55,7 @@ export function SettingsClient() {
         <Card>
           <CardHeader>
             <CardTitle>Qualificação — modo pré (DDD/DDI)</CardTitle>
-            <CardDescription>DDDs aceitos. Leads fora da lista entram como DDD indesejado. Vazio = todos os DDDs válidos do Brasil.</CardDescription>
+            <CardDescription>DDDs aceitos. Leads fora da lista entram como DDD indesejado. Vazio = padrão (11 a 49).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Label htmlFor="ddds">DDDs permitidos</Label>
