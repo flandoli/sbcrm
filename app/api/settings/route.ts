@@ -1,72 +1,58 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth-options'
 import { prisma } from '@/lib/prisma'
-import { clearViraTecnicoCache, clearSsrjChannelsCache, parseIdList, VIRA_TECNICO_CHANNELS_KEY, VIRA_TECNICO_TAGS_KEY, SSRJ_CHANNELS_KEY } from '@/lib/vira-tecnico-utils'
+import { getSessionUser, hasRole } from '@/lib/session'
+import { EDITABLE_SETTING_KEYS, SETTING_KEYS } from '@/lib/settings'
+import { audit } from '@/lib/audit'
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  if (!(await getSessionUser())) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
-  const settings = await prisma.setting.findMany()
+  const settings = await prisma.setting.findMany({ where: { key: { in: EDITABLE_SETTING_KEYS } } })
   const map: Record<string, string> = {}
-  for (const s of settings ?? []) {
-    map[s.key] = s.value
-  }
+  for (const s of settings) map[s.key] = s.value
   return NextResponse.json(map)
 }
 
+function validate(key: string, value: string): string | null {
+  if (key === SETTING_KEYS.allowedDdds) {
+    try {
+      const arr = JSON.parse(value)
+      if (!Array.isArray(arr) || !arr.every((d) => /^\d{2}$/.test(String(d)))) return 'Lista de DDDs inválida'
+    } catch {
+      return 'Lista de DDDs deve ser JSON'
+    }
+  } else if (value !== 'true' && value !== 'false') {
+    return 'Valor deve ser "true" ou "false"'
+  }
+  return null
+}
+
+// Somente Admin altera configurações; toda alteração grava AuditLog.
 export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  const user = await getSessionUser()
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  if (!hasRole(user, 'ADMIN')) return NextResponse.json({ error: 'Apenas Admin' }, { status: 403 })
 
-  const body = await req.json()
-  const { key, value } = body ?? {}
+  const { key, value } = (await req.json().catch(() => ({}))) ?? {}
+  if (!key || !EDITABLE_SETTING_KEYS.includes(key)) {
+    return NextResponse.json({ error: 'Chave de configuração inválida' }, { status: 400 })
+  }
+  const strValue = String(value ?? '')
+  const err = validate(key, strValue)
+  if (err) return NextResponse.json({ error: err }, { status: 400 })
 
-  if (!key) return NextResponse.json({ error: 'Key obrigatória' }, { status: 400 })
-
-  await prisma.setting.upsert({
-    where: { key },
-    update: { value: String(value ?? '') },
-    create: { key, value: String(value ?? '') },
+  const before = await prisma.setting.findUnique({ where: { key } })
+  await prisma.setting.upsert({ where: { key }, update: { value: strValue }, create: { key, value: strValue } })
+  await audit({
+    userId: user.id,
+    acao: 'setting.update',
+    entidade: 'Setting',
+    entidadeId: key,
+    valorAnterior: before ? { value: before.value } : null,
+    valorNovo: { value: strValue },
   })
 
-  // Invalida os caches de configuração ao salvar as chaves correspondentes.
-  if (key === VIRA_TECNICO_CHANNELS_KEY || key === VIRA_TECNICO_TAGS_KEY) {
-    clearViraTecnicoCache()
-  }
-  if (key === SSRJ_CHANNELS_KEY) {
-    clearSsrjChannelsCache()
-  }
-
-  // Marcação retroativa: ao mapear canais (linhas de WhatsApp), marca os leads que
-  // JÁ entraram por esses canais. Sem isso, o mapeamento só valeria para eventos futuros
-  // e os cards continuariam zerados. Apenas seta true (sticky), nunca reverte.
-  let backfilled = 0
-  try {
-    if (key === SSRJ_CHANNELS_KEY) {
-      const channels = parseIdList(String(value ?? ''))
-      if (channels.length) {
-        const r = await prisma.lead.updateMany({
-          where: { opaChannelId: { in: channels }, ssrj: false },
-          data: { ssrj: true },
-        })
-        backfilled = r.count
-      }
-    }
-    if (key === VIRA_TECNICO_CHANNELS_KEY) {
-      const channels = parseIdList(String(value ?? ''))
-      if (channels.length) {
-        const r = await prisma.lead.updateMany({
-          where: { opaChannelId: { in: channels }, viraTecnico: false },
-          data: { viraTecnico: true },
-        })
-        backfilled = r.count
-      }
-    }
-  } catch {}
-
-  return NextResponse.json({ success: true, backfilled })
+  return NextResponse.json({ success: true })
 }

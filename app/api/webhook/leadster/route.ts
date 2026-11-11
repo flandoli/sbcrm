@@ -5,7 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { parsePhone } from '@/lib/phone-utils'
 import { classifyChannel } from '@/lib/channel-utils'
 import { sendLeadIdentifiedEvent, sendQualifiedLeadEvent } from '@/lib/meta-capi'
-import { matchesViraTecnicoText } from '@/lib/vira-tecnico-utils'
+import { getAllowedDdds, isAutoQualifyEnabled } from '@/lib/settings'
+import { audit } from '@/lib/audit'
 
 /**
  * Webhook da Leadster — recebe leads capturados pelo chatbot.
@@ -95,38 +96,16 @@ export async function POST(req: Request) {
     const campaignId = utmCampaign ?? fbclid ?? effectiveGclid ?? null
     const channel = classifyChannel(utmSource, utmMedium, !!fbclid, false, !!effectiveGclid)
 
-    // Vira Técnico: detecta o slug "viratecnico" na página/campanha/UTMs.
-    const hasViraTecnico = matchesViraTecnicoText(pageUrl, scriptName, utmCampaign, utmContent, adUrl)
-
     console.log('[LEADSTER_WEBHOOK] origem:', { utmSource, utmMedium, utmCampaign, utmContent, utmTerm, fbclid, gclid: effectiveGclid, pageUrl })
 
-    // Log de headers para diagnóstico
-    const headersObj: Record<string, string> = {}
-    req.headers.forEach((v, k) => { headersObj[k] = v })
-
-    async function logWebhook(leadSaved: boolean, note: string) {
-      try {
-        await prisma.webhookLog.create({
-          data: {
-            source: 'leadster',
-            payload: JSON.stringify(body).slice(0, 10000),
-            headers: JSON.stringify(headersObj).slice(0, 4000),
-            phoneFound: phone ? String(phone) : null,
-            leadSaved,
-            note,
-          },
-        })
-        // Mantém apenas os 50 registros mais recentes por fonte
-        const old = await prisma.webhookLog.findMany({
-          where: { source: 'leadster' },
-          orderBy: { createdAt: 'desc' },
-          skip: 50,
-          select: { id: true },
-        })
-        if (old.length) await prisma.webhookLog.deleteMany({ where: { id: { in: old.map((o) => o.id) } } })
-      } catch (e) {
-        console.error('[LEADSTER_WEBHOOK] falha ao gravar log:', e)
-      }
+    // Auditoria da ingestão (grava em AuditLog)
+    async function logWebhook(leadSaved: boolean, note: string, leadId?: string) {
+      await audit({
+        acao: 'webhook.leadster',
+        entidade: 'Lead',
+        entidadeId: leadId ?? null,
+        valorNovo: { leadSaved, note, phoneFound: phone ? String(phone) : null, payload: JSON.stringify(body).slice(0, 10000) },
+      })
     }
 
     if (!phone) {
@@ -135,27 +114,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 'ok', message: 'no phone' }, { status: 200 })
     }
 
-    // Load allowed DDDs
-    const dddsSetting = await prisma.setting.findUnique({ where: { key: 'allowed_ddds' } })
-    let allowedDdds: Set<string> | undefined
-    if (dddsSetting?.value) {
-      try {
-        const arr = JSON.parse(dddsSetting.value)
-        if (Array.isArray(arr)) allowedDdds = new Set(arr.map(String))
-      } catch {}
-    }
+    const allowedDdds = await getAllowedDdds()
 
     const parsed = parsePhone(String(phone), allowedDdds)
     const upsertKey = parsed.normalized ?? parsed.raw
 
     // Auto-qualificação
-    const autoSetting = await prisma.setting.findUnique({ where: { key: 'auto_qualify' } })
-    const autoQualify = autoSetting?.value !== 'false'
+    const autoQualify = await isAutoQualifyEnabled()
 
     const existing = await prisma.lead.findUnique({ where: { phoneNormalized: upsertKey } })
 
     if (existing) {
-      // Lead já existe (pode ter vindo do OpaSuite ou de outra fonte)
+      // Lead já existe (dedupe por telefone): não sobrescreve a origem original
       await prisma.lead.update({
         where: { phoneNormalized: upsertKey },
         data: {
@@ -170,10 +140,10 @@ export async function POST(req: Request) {
           ...(!existing.gclid && effectiveGclid ? { gclid: effectiveGclid } : {}),
           ...(!existing.fbclid && fbclid ? { fbclid } : {}),
           ...(!existing.channel ? { channel } : {}),
-          ...(hasViraTecnico ? { viraTecnico: true } : {}),
+          ...(!existing.email && email ? { email } : {}),
         },
       })
-      await logWebhook(true, `Lead atualizado (já existia via ${existing.source}, status ${existing.status})`)
+      await logWebhook(true, `Lead atualizado (já existia via ${existing.source}, status ${existing.status})`, existing.id)
       return NextResponse.json({ status: 'ok', updated: true }, { status: 200 })
     }
 
@@ -187,10 +157,9 @@ export async function POST(req: Request) {
         name,
         campaignId: campaignId,
         campaignName: scriptName ?? utmCampaign,
-        messageFirst: email ? `E-mail: ${email}` : null,
+        email: email ?? null,
         status: parsed.status as any,
         source: 'leadster',
-        isNewConversation: true,
         adId: campaignId,
         adTitle,
         adUrl,
@@ -202,13 +171,16 @@ export async function POST(req: Request) {
         gclid: effectiveGclid ?? null,
         fbclid: fbclid ?? null,
         channel,
-        viraTecnico: hasViraTecnico,
       },
     })
 
     // Evento 'Lead' (topo do funil) na criação de lead de origem Meta.
-    if (created.channel === 'pago_meta' && !created.metaLeadEventSent) {
-      const leadEvt = await sendLeadIdentifiedEvent(created.id, { phone: upsertKey, name: created.name, externalId: created.id })
+    // Só dispara se capi_enabled = "true" (desligado na v1 → retorna null).
+    const leadEvt =
+      created.channel === 'pago_meta' && !created.metaLeadEventSent
+        ? await sendLeadIdentifiedEvent(created.id, { phone: upsertKey, name: created.name, externalId: created.id })
+        : null
+    if (leadEvt) {
       await prisma.lead.update({
         where: { id: created.id },
         data: {
@@ -226,17 +198,22 @@ export async function POST(req: Request) {
         where: { id: created.id },
         data: {
           status: 'QUALIFICADO',
-          metaEventSent: metaResult.success,
-          metaEventId: metaResult.eventId,
-          metaEventError: metaResult.error ?? null,
-          metaEventSentAt: metaResult.success ? new Date() : null,
+          ...(metaResult
+            ? {
+                metaEventSent: metaResult.success,
+                metaEventId: metaResult.eventId,
+                metaEventError: metaResult.error ?? null,
+                metaEventSentAt: metaResult.success ? new Date() : null,
+              }
+            : {}),
         },
       })
-      await logWebhook(true, `Lead qualificado automaticamente e ${metaResult.success ? 'enviado à Meta' : 'FALHA Meta'}${scriptName ? ` (script: ${scriptName})` : ''}`)
-      return NextResponse.json({ status: 'ok', autoQualified: true, metaSent: metaResult.success }, { status: 200 })
+      const capiNote = metaResult ? (metaResult.success ? ' e enviado à Meta' : ' (FALHA Meta)') : ' (CAPI desligado)'
+      await logWebhook(true, `Lead qualificado automaticamente${capiNote}${scriptName ? ` (script: ${scriptName})` : ''}`, created.id)
+      return NextResponse.json({ status: 'ok', autoQualified: true, metaSent: metaResult?.success ?? false }, { status: 200 })
     }
 
-    await logWebhook(true, `Lead salvo (status ${parsed.status}${scriptName ? `, script: ${scriptName}` : ''})`)
+    await logWebhook(true, `Lead salvo (status ${parsed.status}${scriptName ? `, script: ${scriptName}` : ''})`, created.id)
     return NextResponse.json({ status: 'ok' }, { status: 200 })
   } catch (err: any) {
     console.error('[LEADSTER_WEBHOOK] erro:', err)

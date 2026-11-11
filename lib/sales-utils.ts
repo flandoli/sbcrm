@@ -1,8 +1,8 @@
-// Utilidades para importar a planilha de matrículas (vendas) e cruzar com leads.
+// Utilidades de leitura da planilha de vendas (CSV/XLSX) — casamento em lib/sale-matching.ts.
 
 /**
  * Normaliza um cabeçalho: minúsculo, sem acentos, sem espaços/pontuação.
- * Ex.: "E_MAIL" -> "email", "Curso_Escolhido" -> "cursoescolhido", "VALOR_PAGO" -> "valorpago".
+ * Ex.: "Razão Social" -> "razaosocial", "DATA_VENDA" -> "datavenda".
  */
 export function normalizeHeader(h: string): string {
   return (h ?? '')
@@ -14,36 +14,14 @@ export function normalizeHeader(h: string): string {
     .trim()
 }
 
-// Mídias que devem ser totalmente excluídas das Vendas (não contam em matrículas,
-// receita, ROAS, "Por mídia" nem no export/conversões). Comparação por texto normalizado (maiúsculas).
-export const EXCLUDED_MIDIA = ['LPSP']
-
-/** true se a mídia estiver na lista de exclusão. Trata null/undefined como não-excluída. */
-export function isExcludedMidia(midia: string | null | undefined): boolean {
-  return EXCLUDED_MIDIA.includes((midia ?? '').trim().toUpperCase())
-}
-
-// Cláusula Prisma para excluir as mídias acima em consultas ao banco.
-// Usa OR com `midia: null` para NÃO descartar vendas sem mídia preenchida.
-// Deve ser combinada via AND (ex.: where.AND = [excludedMidiaWhere]) para não colidir com outros OR.
-export const excludedMidiaWhere = {
-  OR: [{ midia: null }, { midia: { notIn: EXCLUDED_MIDIA } }],
-}
-
 // Mapa: nome de campo interno -> lista de aliases (já normalizados) aceitos no cabeçalho.
 const FIELD_ALIASES: Record<string, string[]> = {
-  matricula: ['matricula', 'matriculas', 'nmatricula', 'numeromatricula'],
-  idEscola: ['idescola', 'escola', 'idesc'],
-  dataMatricula: ['datamatricula', 'data', 'datamatri', 'dtmatricula'],
-  nome: ['nome', 'aluno', 'nomealuno', 'nomecompleto'],
-  email: ['email', 'ema', 'mail'],
-  phone: ['celular', 'telefone', 'fone', 'whatsapp', 'cel', 'tel'],
-  uf: ['uf', 'estado'],
-  curso: ['cursoescolhido', 'curso', 'produto'],
-  valorPago: ['valorpago', 'valor', 'valorpg', 'vpago'],
-  formaPgto: ['formaspgto', 'formapgto', 'formapagamento', 'formaspagamento', 'pagamento'],
-  midia: ['midia', 'media', 'origem'],
-  formaContato: ['formacontato', 'contato', 'canalcontato'],
+  cnpj: ['cnpj', 'cnpjcliente', 'documento'],
+  razaoSocial: ['razaosocial', 'razao', 'cliente', 'empresa', 'nome'],
+  valor: ['valor', 'valorvenda', 'valortotal', 'valorpago'],
+  datavenda: ['datavenda', 'datadavenda', 'data', 'dtvenda'],
+  origem: ['origem', 'midia', 'canal'],
+  phone: ['telefone', 'celular', 'fone', 'whatsapp'],
 }
 
 export interface ColumnMap {
@@ -151,7 +129,7 @@ export function parseValor(raw: any): number | null {
  *  - Date (retorna como está)
  * Retorna null se não conseguir converter.
  */
-export function parseDataMatricula(raw: any): Date | null {
+export function parseDataVenda(raw: any): Date | null {
   if (raw === null || raw === undefined || raw === '') return null
   if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw
 
