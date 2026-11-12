@@ -41,3 +41,23 @@ export async function trocarCnpj(accountId: string, novo: string) {
   if (dono && dono.id !== accountId) throw new CnpjError(`Esse CNPJ já está cadastrado na conta "${dono.razaoSocial}".`, 409)
   return prisma.account.update({ where: { id: accountId }, data: { ...s, cnpjProvisorio: false } })
 }
+
+/** Filtros comuns da lista e do quadro: ?q= (nome/CNPJ), ?provisorio=1, ?responsavel=<userId>. */
+export function filtroContas(user: SessionUser, params: URLSearchParams): Prisma.AccountWhereInput {
+  const and: Prisma.AccountWhereInput[] = [accountScope(user)]
+  const q = params.get('q')?.trim() ?? ''
+  if (params.get('provisorio') === '1') and.push({ cnpjProvisorio: true })
+  const resp = params.get('responsavel')
+  if (resp && user.papel !== 'VENDEDOR') and.push({ responsavelId: resp })
+  if (q) {
+    const dig = onlyDigits(q)
+    and.push({
+      OR: [
+        { razaoSocial: { contains: q, mode: 'insensitive' } },
+        { nomeFantasia: { contains: q, mode: 'insensitive' } },
+        ...(dig.length >= 4 ? [{ cnpjRaiz: { startsWith: dig.slice(0, 8) } }] : []),
+      ],
+    })
+  }
+  return { AND: and }
+}
