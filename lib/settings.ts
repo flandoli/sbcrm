@@ -6,6 +6,8 @@ export const SETTING_KEYS = {
   allowedDdds: 'allowed_ddds', // JSON string[] — modo "pré" de qualificação DDD/DDI
   autoQualify: 'auto_qualify', // "true" | "false"
   capiEnabled: 'capi_enabled', // "true" | "false" — modo "posterior" (Meta CAPI). Desligado na v1.
+  allowedDdis: 'allowed_ddis', // JSON string[] — DDIs internacionais aceitos além do 55
+  funnelPreset: 'funnel_preset', // "v1" | "v2" — preset de etapas ativo no Kanban
 } as const
 
 export const EDITABLE_SETTING_KEYS: string[] = Object.values(SETTING_KEYS)
@@ -33,4 +35,18 @@ export async function getAllowedDdds(): Promise<Set<string>> {
     } catch {}
   }
   return new Set(getDefaultAllowedDdds())
+}
+
+export async function getAllowedDdis(): Promise<Set<string>> {
+  const raw = await getSetting(SETTING_KEYS.allowedDdis)
+  try {
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(['55', ...(Array.isArray(arr) ? arr.map(String) : [])])
+  } catch {
+    return new Set(['55'])
+  }
+}
+
+export async function getFunnelPreset(): Promise<'v1' | 'v2'> {
+  return (await getSetting(SETTING_KEYS.funnelPreset)) === 'v2' ? 'v2' : 'v1'
 }

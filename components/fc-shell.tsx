@@ -3,15 +3,16 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
-import { LayoutDashboard, Settings, LogOut } from 'lucide-react'
+import { LayoutDashboard, Settings, LogOut, ShieldCheck } from 'lucide-react'
 import { AppShell } from '@/components/layouts/app-shell'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-const NAV = [
+const NAV: { href: string; label: string; icon: typeof Settings; papeis?: string[] }[] = [
   { href: '/dashboard', label: 'Leads', icon: LayoutDashboard },
   { href: '/settings', label: 'Configurações', icon: Settings },
+  { href: '/admin', label: 'Admin', icon: ShieldCheck, papeis: ['ADMIN', 'DIRETOR'] },
 ]
 
 export function FcShell({ title, children }: { title: string; children: React.ReactNode }) {
@@ -25,7 +26,7 @@ export function FcShell({ title, children }: { title: string; children: React.Re
         <p className="text-xs text-muted-foreground">sbcrm</p>
       </div>
       <nav className="flex flex-col gap-1">
-        {NAV.map(({ href, label, icon: Icon }) => (
+        {NAV.filter((n) => !n.papeis || n.papeis.includes(data?.user?.papel ?? '')).map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}

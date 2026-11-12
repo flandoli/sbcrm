@@ -15,6 +15,7 @@ export function SettingsClient() {
   const isAdmin = data?.user?.papel === 'ADMIN'
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [ddds, setDdds] = useState('')
+  const [ddis, setDdis] = useState('')
 
   useEffect(() => {
     fetch('/api/settings')
@@ -23,6 +24,7 @@ export function SettingsClient() {
         setSettings(s)
         try {
           setDdds((JSON.parse(s.allowed_ddds ?? '[]') as string[]).join(', '))
+          setDdis((JSON.parse(s.allowed_ddis ?? '[]') as string[]).join(', '))
         } catch {}
       })
   }, [])
@@ -36,13 +38,14 @@ export function SettingsClient() {
     const body = await res.json().catch(() => ({}))
     if (!res.ok) return toast.error(body?.error ?? 'Erro ao salvar')
     setSettings((s) => ({ ...s, [key]: value }))
-    toast.success('Configuração salva')
+    const r = body?.reclassificacao as { analisados: number; alterados: number } | undefined
+    toast.success(
+      'Configuração salva',
+      r ? { description: `Regra reaplicada aos leads existentes: ${r.alterados} de ${r.analisados} mudaram de status (alterações manuais preservadas).` } : undefined,
+    )
   }
 
-  function saveDdds() {
-    const list = ddds.split(/[\s,;]+/).map((d) => d.trim()).filter(Boolean)
-    save('allowed_ddds', JSON.stringify(Array.from(new Set(list)).sort()))
-  }
+  const toList = (raw: string) => JSON.stringify(Array.from(new Set(raw.split(/[\s,;+]+/).map((d) => d.trim()).filter(Boolean))).sort())
 
   return (
     <FcShell title="Configurações">
@@ -57,9 +60,17 @@ export function SettingsClient() {
           <CardContent className="space-y-3">
             <Label htmlFor="ddds">DDDs permitidos</Label>
             <Input id="ddds" value={ddds} disabled={!isAdmin} onChange={(e) => setDdds(e.target.value)} placeholder="11, 21, 41" />
-            <Button onClick={saveDdds} disabled={!isAdmin}>
+            <Button onClick={() => save('allowed_ddds', toList(ddds))} disabled={!isAdmin}>
               Salvar DDDs
             </Button>
+            <Label htmlFor="ddis" className="block pt-2">DDIs internacionais aceitos (além do 55)</Label>
+            <Input id="ddis" value={ddis} disabled={!isAdmin} onChange={(e) => setDdis(e.target.value)} placeholder="1, 351, 54" />
+            <Button onClick={() => save('allowed_ddis', toList(ddis))} disabled={!isAdmin}>
+              Salvar DDIs
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Ao salvar, a regra é reaplicada aos leads já gravados. Status definidos manualmente não são alterados.
+            </p>
           </CardContent>
         </Card>
 
