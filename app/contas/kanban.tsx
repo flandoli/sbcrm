@@ -139,7 +139,9 @@ export function ContasKanban({ filtros, versao, onCnpj, onMeta }: Props) {
                 onDragOver={(e) => {
                   if (!arrastando) return
                   e.preventDefault()
-                  e.dataTransfer.dropEffect = ok ? 'move' : 'none'
+                  // Sempre aceita o drop: movimento proibido é recusado em solicitarMover com mensagem
+                  // (com dropEffect 'none' o navegador descartaria o drop em silêncio).
+                  e.dataTransfer.dropEffect = 'move'
                   if (sobre !== s.id) setSobre(s.id)
                 }}
                 onDragLeave={() => setSobre((v) => (v === s.id ? null : v))}
