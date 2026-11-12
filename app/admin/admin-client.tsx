@@ -6,6 +6,8 @@ import { UsersTab } from './users-tab'
 import { FunnelTab } from './funnel-tab'
 import { OriginsTab } from './origins-tab'
 import { CatalogTab } from './catalog-tab'
+import { ProductsTab } from './products-tab'
+import { ImportTab } from './import-tab'
 import { DiscountTab, ConversionTab } from './rates-tabs'
 import { AuditTab } from './audit-tab'
 
@@ -18,6 +20,8 @@ export function AdminClient({ papel, meId }: { papel: 'ADMIN' | 'DIRETOR'; meId:
           { id: 'funil', label: 'Funil', el: <FunnelTab /> },
           { id: 'origens', label: 'Origens e parceiros', el: <OriginsTab /> },
           { id: 'catalogos', label: 'Catálogos', el: <CatalogTab /> },
+          { id: 'produtos', label: 'Produtos', el: <ProductsTab /> },
+          { id: 'importacao', label: 'Importação', el: <ImportTab /> },
         ]
       : []),
     { id: 'alcadas', label: 'Alçadas de desconto', el: <DiscountTab canEdit /> },

@@ -35,3 +35,14 @@ export const discountSchema = z.object({
 export const conversionSchema = z.object({
   items: z.array(z.object({ stageId: z.string(), segmento, taxaPorc: porc })).min(1),
 })
+
+// Produto/serviço do catálogo (sem preço na v1).
+export const productSchema = z.object({
+  codigo: z.string().trim().min(2, 'Código obrigatório').max(30).transform((s) => s.toUpperCase()),
+  nome: z.string().trim().min(2, 'Nome obrigatório').max(120),
+  tipo: z.enum(['PRODUTO', 'SERVICO']),
+  segmento: z.enum(['VAREJO', 'INDUSTRIA']).nullable(),
+  tipoMidia: z.string().trim().max(60).nullable(),
+  descricao: z.string().trim().max(2000).nullable(),
+  ativo: z.boolean(),
+})
