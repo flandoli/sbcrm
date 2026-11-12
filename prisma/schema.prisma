@@ -103,6 +103,16 @@ enum TipoAnalise {
   OUTRO
 }
 
+enum StatusConta {
+  PROSPECT
+  CLIENTE
+}
+
+enum TipoProduto {
+  PRODUTO
+  SERVICO
+}
+
 // Tipos de lista configurável no Admin (bloco Escopo e cadastro)
 enum CatalogTipo {
   CATEGORIA
@@ -269,7 +279,7 @@ model AuditLog {
 // ──────────────────────── ENTIDADES NOVAS DO FC ────────────────────────
 
 model Account {
-  id                  String   @id @default(cuid())
+  id                  String      @id @default(cuid())
   razaoSocial         String
   nomeFantasia        String?
   cnpjRaiz            String // 8 dígitos
@@ -284,9 +294,14 @@ model Account {
   origemId            String?
   parceiroId          String?
   responsavelId       String
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  // CNPJ fantasma (raiz 9999xxxx, filial 0000) gerado na importação; precisa ser trocado pelo real.
+  cnpjProvisorio      Boolean     @default(false)
+  statusConta         StatusConta @default(PROSPECT)
+  importKey           String?     @unique // chave estável da importação (reimportar não duplica)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
+  notas         Note[]
   matriz        Account?      @relation("MatrizFiliais", fields: [matrizId], references: [id], onDelete: SetNull)
   filiais       Account[]     @relation("MatrizFiliais")
   origem        LeadOrigin?   @relation(fields: [origemId], references: [id], onDelete: SetNull)
@@ -334,6 +349,7 @@ model Person {
   telefone  String // normalizado (apenas dígitos)
   cargo     String?
   area      String?
+  importKey String?  @unique
   createdAt DateTime @default(now())
 
   papeis PersonRole[]
@@ -360,9 +376,9 @@ model PersonRole {
 }
 
 model Stage {
-  id       String  @id @default(cuid())
-  nome     String
-  ordem    Int
+  id        String     @id @default(cuid())
+  nome      String
+  ordem     Int
   terminal  Boolean    @default(false)
   resultado Resultado? // só em etapas terminais: FECHADO (Fechamento) ou PERDIDO (Perda/Abandonados — exige motivo)
   preset    String // "v1" | "v2"
@@ -437,6 +453,7 @@ model Opportunity {
   resultado          Resultado?
   motivoPerda        String? // obrigatório quando resultado = PERDIDO (validado na aplicação)
   alertaRetomada     DateTime?
+  importKey          String?    @unique
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
@@ -453,6 +470,7 @@ model Opportunity {
   escopos         Scope[]
   faturamento     BillingData[]
   analisesIA      AIAnalysis[]
+  notas           Note[]
 
   @@index([accountId])
   @@index([stageId])
@@ -668,4 +686,52 @@ model CatalogItem {
 
   @@unique([tipo, nome])
   @@index([tipo, ativo, ordem])
+}
+
+// Anotações da conta/oportunidade (timeline). A importação traz as observações das planilhas antigas.
+model Note {
+  id            String   @id @default(cuid())
+  accountId     String
+  opportunityId String?
+  userId        String?
+  texto         String   @db.Text
+  origem        String? // ex.: "import:controle-tarefas"
+  importKey     String?  @unique
+  createdAt     DateTime @default(now())
+
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@index([accountId, createdAt])
+  @@index([opportunityId])
+}
+
+// Catálogo de produtos/serviços vendáveis. Sem preço: o motor de precificação fica fora da v1.
+model Product {
+  id        String      @id @default(cuid())
+  codigo    String      @unique
+  nome      String
+  tipo      TipoProduto @default(SERVICO)
+  segmento  Segmento? // null = vale para os dois segmentos
+  tipoMidia String?
+  descricao String?     @db.Text
+  ativo     Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+// Árvore de categorias monitoradas (4 níveis: departamento > categoria > subcategoria > item).
+model ProductCategory {
+  id       String            @id @default(cuid())
+  caminho  String            @unique // "MERCEARIA > CAFE > CAFE EM PO > TRADICIONAL"
+  nome     String
+  nivel    Int // 1 a 4
+  parentId String?
+  faixa    String? // "Nível N" da base comercial (informativo; não calcula preço)
+  ativo    Boolean           @default(true)
+  parent   ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
+  filhos   ProductCategory[] @relation("CategoryTree")
+
+  @@index([parentId])
+  @@index([nivel, nome])
 }
