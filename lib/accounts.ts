@@ -3,10 +3,12 @@ import { prisma } from '@/lib/prisma'
 import type { SessionUser } from '@/lib/session'
 import { formatCnpj, isCnpjFantasma, isCnpjValido, onlyDigits, splitCnpj } from '@/lib/import/normalize'
 
-/** Contas visíveis: Admin/Diretor veem todas; Gerente, as do seu segmento; Vendedor, as suas. */
+/** Contas visíveis: Admin/Diretor veem todas; Gerente, as do seu segmento + as suas; Vendedor, as suas. */
 export function accountScope(user: SessionUser): Prisma.AccountWhereInput {
   if (user.papel === 'ADMIN' || user.papel === 'DIRETOR') return {}
-  if (user.papel === 'GERENTE') return user.segmento ? { segmento: user.segmento } : {}
+  // Gerente vê o seu segmento e, sempre, as contas de que é responsável (mesmo de outro segmento).
+  if (user.papel === 'GERENTE')
+    return user.segmento ? { OR: [{ segmento: user.segmento }, { responsavelId: user.id }] } : {}
   return { responsavelId: user.id }
 }
 
