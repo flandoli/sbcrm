@@ -12,7 +12,9 @@
     "prisma:deploy": "prisma migrate deploy",
     "seed": "tsx --require dotenv/config scripts/seed.ts",
     "import:converter": "tsx scripts/import/converter-planilhas.ts",
-    "import:base": "tsx --require dotenv/config scripts/import/importar-base.ts"
+    "import:base": "tsx --require dotenv/config scripts/import/importar-base.ts",
+    "migrate": "prisma migrate deploy",
+    "postinstall": "prisma generate && prisma migrate deploy"
   },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/seed.ts"
