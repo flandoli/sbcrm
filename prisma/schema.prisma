@@ -160,6 +160,9 @@ model User {
   aiIntegration       AIIntegration?
   aiAnalyses          AIAnalysis[]
   auditLogs           AuditLog[]
+  sentMessages        Message[]             @relation("SentMessages")
+  receivedMessages    Message[]             @relation("ReceivedMessages")
+  messageReads        MessageRead[]
 }
 
 model AuthAccount {
@@ -734,4 +737,36 @@ model ProductCategory {
 
   @@index([parentId])
   @@index([nivel, nome])
+}
+
+// ──────────────────────── MENSAGENS INTERNAS ────────────────────────
+// toId nulo = mensagem para todos (broadcast). readAt vale para mensagens 1:1;
+// a leitura de broadcast é por usuário e fica em MessageRead.
+model Message {
+  id        String        @id @default(cuid())
+  fromId    String
+  from      User          @relation("SentMessages", fields: [fromId], references: [id])
+  toId      String?
+  to        User?         @relation("ReceivedMessages", fields: [toId], references: [id], onDelete: Restrict)
+  body      String        @db.Text
+  imageData String?       @db.Text // base64 da imagem (sem prefixo data:)
+  imageMime String? // ex: "image/jpeg"
+  readAt    DateTime?
+  createdAt DateTime      @default(now())
+  reads     MessageRead[]
+
+  @@index([fromId])
+  @@index([toId])
+  @@index([createdAt])
+}
+
+model MessageRead {
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now())
+
+  @@id([messageId, userId])
+  @@index([userId])
 }
