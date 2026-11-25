@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FcShell } from '@/components/fc-shell'
+import { DashboardMessagesBadge } from '@/components/dashboard-messages-badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -82,6 +83,7 @@ export function DashboardClient() {
   return (
     <FcShell title="Leads">
       <div className="space-y-6">
+        <DashboardMessagesBadge />
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {cards.map((c) => (
             <Card key={c.label}>

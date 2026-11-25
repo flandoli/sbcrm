@@ -22,7 +22,7 @@ const NAV: { href: string; label: string; icon: typeof Settings; papeis?: string
 export const MESSAGES_READ_EVENT = 'fc:messages-read'
 
 /** Total de mensagens não lidas, consultado a cada 30s. */
-function useUnreadMessages() {
+export function useUnreadMessages() {
   const [unread, setUnread] = useState(0)
   useEffect(() => {
     let alive = true
